@@ -1,1 +1,237 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Profil Saya — Peerly</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/style.css">
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
 
+<div class="app" id="shell"></div>
+
+<script type="module">
+  import { api, setUser } from '/static/js/api.js';
+  import { mountShell, toast, escapeHtml } from '/static/js/ui.js';
+
+  const LEVELS = ['SD', 'SMP', 'SMA'];
+
+  let profile, subjects;
+  try {
+    [{ profile }, { subjects }] = await Promise.all([
+      api('/api/profile', { auth: false }),
+      api('/api/subjects', { auth: false }),
+    ]);
+  } catch (error) {
+    location.href = '/pages/login';
+    throw error;
+  }
+
+  // Sinkronkan localStorage dengan data server agar sidebar (ui.js) benar.
+  const syncUser = (p) => setUser({
+    id: p.id, role: p.role, username: p.username, email: p.email,
+    full_name: p.full_name, name: p.full_name,
+  });
+  syncUser(profile);
+
+  mountShell('/pages/profil.html');
+  const main = document.getElementById('mainContent');
+
+  const welcome = new URLSearchParams(location.search).get('welcome') === '1';
+  const isTutor = profile.role === 'tutor';
+
+  main.innerHTML = `
+    <div class="main-head">
+      <div>
+        <h1>Profil Saya</h1>
+        <p class="sub">Lengkapi profil agar sistem bisa mencocokkan dengan ${isTutor ? 'siswa' : 'tutor'} yang tepat.</p>
+      </div>
+    </div>
+
+    ${welcome ? `<div class="alert alert-info">Akun berhasil dibuat. Lengkapi profil dulu, ya — ini jadi dasar sistem matching.</div>` : ''}
+
+    <div class="card" style="max-width:720px;">
+      <div id="alert"></div>
+      <form id="profileForm">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Nama</label>
+            <input value="${escapeHtml(profile.full_name || '')}" disabled>
+          </div>
+          <div class="form-group">
+            <label>Username</label>
+            <input value="${escapeHtml(profile.username || '')}" disabled>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Email</label>
+          <input value="${escapeHtml(profile.email || '')}" disabled>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="phone">No. HP / WhatsApp</label>
+            <input id="phone" name="phone" type="tel" placeholder="08xx..." maxlength="30">
+          </div>
+          <div class="form-group">
+            <label for="location">Lokasi (Kota / Kabupaten)</label>
+            <input id="location" name="location" type="text" placeholder="mis. Depok" maxlength="100">
+          </div>
+        </div>
+
+        ${isTutor ? `
+          <div class="form-group">
+            <label>Jenjang yang bisa diajar</label>
+            <div id="levelsBox" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
+            <div class="form-help">Pilih satu atau beberapa.</div>
+          </div>
+        ` : `
+          <div class="form-row">
+            <div class="form-group">
+              <label for="jenjang">Jenjang saya</label>
+              <select id="jenjang" name="jenjang">
+                <option value="">—</option>
+                ${LEVELS.map(j => `<option value="${j}">${j}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="kelas">Kelas saya</label>
+              <input id="kelas" name="kelas" placeholder="mis. Kelas 8 / Kelas 11 IPA" maxlength="50">
+            </div>
+          </div>
+        `}
+
+        <div class="form-group">
+          <label>Mata pelajaran ${isTutor ? 'yang bisa diajar' : 'yang ingin dipelajari'}</label>
+          <div id="subjectsBox" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
+          <div class="form-help">Pilih satu atau beberapa.</div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="mode_preference">Preferensi mode belajar</label>
+            <select id="mode_preference" name="mode_preference">
+              <option value="">—</option>
+              <option value="online">Online (video call)</option>
+              <option value="offline">Offline (tatap muka)</option>
+              <option value="both">Keduanya</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="gaya_belajar">Gaya belajar yang disukai</label>
+            <select id="gaya_belajar" name="gaya_belajar">
+              <option value="">—</option>
+              <option value="visual">Visual (diagram, gambar)</option>
+              <option value="auditori">Auditori (penjelasan)</option>
+              <option value="kinestetik">Kinestetik (praktik)</option>
+              <option value="campuran">Campuran</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="availability">Ketersediaan waktu</label>
+          <textarea id="availability" name="availability" maxlength="500" placeholder="mis. Senin–Jumat sore setelah jam 17:00, akhir pekan pagi"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label for="bio">Bio singkat</label>
+          <textarea id="bio" name="bio" maxlength="1000" placeholder="${isTutor ? 'Pengalaman mengajar, prestasi, metode mengajar favorit…' : 'Hal yang paling membuat kamu kesulitan, atau target belajar jangka pendekmu…'}"></textarea>
+        </div>
+
+        ${isTutor ? `
+          <div class="form-group">
+            <label for="experience_description">Pengalaman mengajar (opsional)</label>
+            <textarea id="experience_description" name="experience_description" maxlength="1000" placeholder="mis. 2 tahun mengajar privat Matematika SMP"></textarea>
+          </div>
+        ` : ''}
+
+        <button id="saveBtn" type="submit" class="btn btn-primary">Simpan profil</button>
+      </form>
+    </div>
+  `;
+
+  const CHECK_STYLE = 'display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border:1px solid var(--color-line);border-radius:999px;cursor:pointer;font-size:0.88rem;background:#fff;';
+
+  function addCheckbox(box, name, value, label, checked) {
+    const l = document.createElement('label');
+    l.style.cssText = CHECK_STYLE;
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.name = name;
+    input.value = String(value);
+    input.checked = checked;
+    input.style.margin = '0';
+    l.append(input, ' ' + label);
+    box.appendChild(l);
+  }
+
+  const picked = new Set((profile.subject_ids || []).map(String));
+  const subjectsBox = document.getElementById('subjectsBox');
+  if (!subjects.length) {
+    subjectsBox.innerHTML = `<span class="meta">Belum ada mata pelajaran di database.</span>`;
+  }
+  subjects.forEach(s => addCheckbox(subjectsBox, 'subject', s.id, s.name, picked.has(String(s.id))));
+
+  if (isTutor) {
+    const levelsBox = document.getElementById('levelsBox');
+    const levels = new Set(profile.teaching_levels || []);
+    LEVELS.forEach(l => addCheckbox(levelsBox, 'level', l, l, levels.has(l)));
+  }
+
+  function fill(p) {
+    const set = (id, value) => { const el = document.getElementById(id); if (el && value) el.value = value; };
+    ['phone', 'location', 'mode_preference', 'gaya_belajar', 'availability', 'bio'].forEach(k => set(k, p[k]));
+    if (isTutor) set('experience_description', p.experience_description);
+    else { set('jenjang', p.jenjang); set('kelas', p.kelas); }
+  }
+  fill(profile);
+
+  const form = document.getElementById('profileForm');
+  const alertBox = document.getElementById('alert');
+  const saveBtn = document.getElementById('saveBtn');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    alertBox.innerHTML = '';
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Menyimpan...';
+
+    const fd = new FormData(form);
+    const body = {
+      phone: fd.get('phone'),
+      location: fd.get('location'),
+      mode_preference: fd.get('mode_preference'),
+      gaya_belajar: fd.get('gaya_belajar'),
+      availability: fd.get('availability'),
+      bio: fd.get('bio'),
+      subject_ids: fd.getAll('subject'),
+    };
+    if (isTutor) {
+      body.teaching_levels = fd.getAll('level');
+      body.experience_description = fd.get('experience_description');
+    } else {
+      body.jenjang = fd.get('jenjang');
+      body.kelas = fd.get('kelas');
+    }
+
+    try {
+      const result = await api('/api/profile', { method: 'PUT', auth: false, body });
+      syncUser(result.profile);
+      toast('Profil tersimpan', 'success');
+      if (welcome) setTimeout(() => location.href = '/pages/dashboard', 900);
+    } catch (err) {
+      alertBox.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message)}</div>`;
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Simpan profil';
+    }
+  });
+</script>
+</body>
+</html>
