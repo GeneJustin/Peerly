@@ -1,1 +1,226 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bank Materi — Peerly</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/style.css">
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
 
+<div class="app" id="shell"></div>
+
+<!-- View modal -->
+<div class="modal-backdrop" id="viewModal">
+  <div class="modal" style="max-width:720px;">
+    <button class="close" id="viewClose" type="button">×</button>
+    <div id="viewBody"></div>
+  </div>
+</div>
+
+<!-- Add modal (tutor only) -->
+<div class="modal-backdrop" id="addModal">
+  <div class="modal" style="max-width:620px;">
+    <button class="close" id="addClose" type="button">×</button>
+    <h2>Tambah materi</h2>
+    <div id="addAlert"></div>
+    <form id="addForm">
+      <div class="form-group">
+        <label>Judul</label>
+        <input name="title" required maxlength="200">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Mata pelajaran</label>
+          <select name="subject_id" id="aMp" required></select>
+        </div>
+        <div class="form-group">
+          <label>Jenjang</label>
+          <select name="jenjang" required>
+            <option value="SD">SD</option><option value="SMP">SMP</option><option value="SMA">SMA</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Deskripsi singkat</label>
+        <input name="description" maxlength="500">
+      </div>
+      <div class="form-group">
+        <label>Isi / rangkuman</label>
+        <textarea name="content" style="min-height:140px;" maxlength="20000"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Link eksternal (opsional)</label>
+        <input name="url" type="url" placeholder="https://…" maxlength="500">
+      </div>
+      <button id="addSubmit" class="btn btn-primary" type="submit">Simpan</button>
+    </form>
+  </div>
+</div>
+
+<script type="module">
+  import { api, setUser } from '/static/js/api.js';
+  import { mountShell, escapeHtml, fmtDateTime, toast } from '/static/js/ui.js';
+
+  const LEVELS = ['SD', 'SMP', 'SMA'];
+
+  let user, subjects;
+  try {
+    ({ user } = await api('/api/auth/me', { auth: false }));
+    ({ subjects } = await api('/api/subjects', { auth: false }));
+  } catch (error) {
+    location.href = '/pages/login';
+    throw error;
+  }
+
+  setUser({ id: user.id, role: user.role, username: user.username, email: user.email, full_name: user.full_name, name: user.full_name });
+  mountShell('/pages/materi.html');
+
+  const main = document.getElementById('mainContent');
+  const isTutor = user.role === 'tutor';
+
+  main.innerHTML = `
+    <div class="main-head">
+      <div>
+        <h1>Bank Materi</h1>
+        <p class="sub">Rangkuman dan modul belajar yang bisa diakses kapan saja — tanpa jadwal sesi.</p>
+      </div>
+      ${isTutor ? `<button class="btn btn-primary" id="btnAdd" type="button">+ Tambah materi</button>` : ''}
+    </div>
+
+    <div class="toolbar">
+      <div><label>Cari</label><input id="fQ" placeholder="Judul / deskripsi"></div>
+      <div><label>Mata pelajaran</label>
+        <select id="fMp"><option value="">Semua</option>${subjects.map(s => `<option value="${escapeHtml(String(s.id))}">${escapeHtml(s.name)}</option>`).join('')}</select></div>
+      <div><label>Jenjang</label>
+        <select id="fJj"><option value="">Semua</option>${LEVELS.map(j => `<option>${j}</option>`).join('')}</select></div>
+      <div></div><div></div>
+      <div><label>&nbsp;</label><button class="btn-sm" id="btnFilter" style="width:100%;" type="button">Terapkan</button></div>
+    </div>
+
+    <div id="results" class="grid-3"></div>
+  `;
+
+  const results = document.getElementById('results');
+  const fQ = document.getElementById('fQ');
+
+  document.getElementById('btnFilter').addEventListener('click', load);
+  fQ.addEventListener('keydown', (e) => { if (e.key === 'Enter') load(); });
+  document.getElementById('fMp').addEventListener('change', load);
+  document.getElementById('fJj').addEventListener('change', load);
+
+  async function load() {
+    results.innerHTML = `<div class="empty" style="grid-column: 1/-1; padding:20px;">Memuat…</div>`;
+    const params = new URLSearchParams();
+    const mp = document.getElementById('fMp').value;
+    const jj = document.getElementById('fJj').value;
+    const q = fQ.value.trim();
+    if (mp) params.set('subject_id', mp);
+    if (jj) params.set('jenjang', jj);
+    if (q) params.set('q', q);
+
+    let materi;
+    try {
+      ({ materi } = await api('/api/materi?' + params.toString(), { auth: false }));
+    } catch (err) {
+      results.innerHTML = `<div class="empty" style="grid-column: 1/-1;"><h3>Terjadi kesalahan</h3><p>${escapeHtml(err.message)}</p></div>`;
+      return;
+    }
+
+    if (!materi.length) {
+      results.innerHTML = `<div class="empty" style="grid-column: 1/-1;"><h3>Belum ada materi</h3><p>${isTutor ? 'Kamu bisa jadi yang pertama menambahkan!' : 'Coba filter lain.'}</p></div>`;
+      return;
+    }
+
+    results.innerHTML = materi.map(m => `
+      <div class="card">
+        <div class="chips" style="margin-bottom:8px;">
+          <span class="chip">${escapeHtml(m.mata_pelajaran)}</span>
+          ${m.jenjang ? `<span class="chip amber">${escapeHtml(m.jenjang)}</span>` : ''}
+        </div>
+        <h3>${escapeHtml(m.title)}</h3>
+        <p class="meta" style="margin:6px 0 12px;">${escapeHtml(m.description || '')}</p>
+        <button class="btn-sm outline" data-view="${escapeHtml(String(m.id))}" type="button">Buka materi</button>
+      </div>
+    `).join('');
+    results.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => openView(b.dataset.view)));
+  }
+
+  // View modal
+  const viewModal = document.getElementById('viewModal');
+  document.getElementById('viewClose').onclick = () => viewModal.classList.remove('open');
+  viewModal.addEventListener('click', e => { if (e.target === viewModal) viewModal.classList.remove('open'); });
+
+  async function openView(id) {
+    try {
+      const { materi: m } = await api(`/api/materi/${encodeURIComponent(id)}`, { auth: false });
+      const safeUrl = m.url && /^https?:\/\//i.test(m.url) ? m.url : null;
+      document.getElementById('viewBody').innerHTML = `
+        <div class="chips" style="margin-bottom:8px;">
+          <span class="chip">${escapeHtml(m.mata_pelajaran)}</span>
+          ${m.jenjang ? `<span class="chip amber">${escapeHtml(m.jenjang)}</span>` : ''}
+        </div>
+        <h2>${escapeHtml(m.title)}</h2>
+        <p class="meta" style="margin:6px 0 14px;">${escapeHtml(m.description || '')}</p>
+        ${m.content ? `<div style="white-space:pre-wrap; line-height:1.7;">${escapeHtml(m.content)}</div>` : ''}
+        ${safeUrl ? `<p style="margin-top:14px;"><a class="btn-sm" href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer">Buka link eksternal ↗</a></p>` : ''}
+        <p class="meta" style="margin-top:16px;">Ditambahkan${m.author_name ? ' oleh ' + escapeHtml(m.author_name) : ''}: ${fmtDateTime(m.created_at)}</p>
+      `;
+      viewModal.classList.add('open');
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  // Add modal (tutor)
+  if (isTutor) {
+    const addModal = document.getElementById('addModal');
+    const addForm = document.getElementById('addForm');
+    const addAlert = document.getElementById('addAlert');
+    const addSubmit = document.getElementById('addSubmit');
+
+    document.getElementById('aMp').innerHTML = subjects.map(s => `<option value="${escapeHtml(String(s.id))}">${escapeHtml(s.name)}</option>`).join('');
+
+    document.getElementById('btnAdd').addEventListener('click', () => {
+      addAlert.innerHTML = '';
+      addModal.classList.add('open');
+    });
+    document.getElementById('addClose').onclick = () => addModal.classList.remove('open');
+    addModal.addEventListener('click', e => { if (e.target === addModal) addModal.classList.remove('open'); });
+
+    addForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      addAlert.innerHTML = '';
+      addSubmit.disabled = true;
+      addSubmit.textContent = 'Menyimpan...';
+      const fd = new FormData(addForm);
+      try {
+        await api('/api/materi', { method: 'POST', auth: false, body: {
+          title: fd.get('title'),
+          description: fd.get('description'),
+          subject_id: fd.get('subject_id'),
+          jenjang: fd.get('jenjang'),
+          content: fd.get('content'),
+          url: fd.get('url'),
+        }});
+        addModal.classList.remove('open');
+        toast('Materi tersimpan', 'success');
+        addForm.reset();
+        load();
+      } catch (err) {
+        addAlert.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message)}</div>`;
+      } finally {
+        addSubmit.disabled = false;
+        addSubmit.textContent = 'Simpan';
+      }
+    });
+  }
+
+  load();
+</script>
+</body>
+</html>
