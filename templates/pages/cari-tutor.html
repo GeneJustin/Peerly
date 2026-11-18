@@ -1,1 +1,343 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cari Tutor — Peerly</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/style.css">
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
 
+<div class="app" id="shell"></div>
+
+<div class="modal-backdrop" id="modal">
+  <div class="modal">
+    <button class="close" id="modalClose" type="button">×</button>
+    <h2>Ajukan sesi belajar</h2>
+    <p class="meta" id="modalTutorInfo"></p>
+    <div id="modalAlert"></div>
+
+    <form id="sessionForm" style="margin-top:14px;">
+      <input type="hidden" name="tutor_id">
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Mata pelajaran</label>
+          <select name="subject_id" id="mp" required></select>
+        </div>
+        <div class="form-group">
+          <label>Jenjang</label>
+          <select name="jenjang" id="jj" required></select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Topik (opsional)</label>
+        <input name="topik" placeholder="mis. Persamaan kuadrat" maxlength="200">
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Tanggal & waktu</label>
+          <input name="scheduled_at" id="scheduledAt" type="datetime-local" required>
+        </div>
+        <div class="form-group">
+          <label>Durasi (menit)</label>
+          <input name="duration_min" type="number" value="60" min="30" max="180" step="15" required>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Mode</label>
+          <select name="mode" required>
+            <option value="online">Online (video call)</option>
+            <option value="offline">Offline (tatap muka)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Lokasi / Link (opsional)</label>
+          <input name="location_or_link" placeholder="mis. Perpustakaan Kota / link Zoom" maxlength="300">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Catatan untuk tutor</label>
+        <textarea name="notes" placeholder="Hal yang perlu diketahui tutor" maxlength="1000"></textarea>
+      </div>
+
+      <button class="btn btn-primary" id="submitSession" type="submit">
+        Kirim permintaan
+      </button>
+    </form>
+  </div>
+</div>
+
+<script type="module">
+import { api, setUser } from '/static/js/api.js';
+import { mountShell, stars, toast, escapeHtml } from '/static/js/ui.js';
+
+const LEVELS = ['SD', 'SMP', 'SMA'];
+
+let user, subjects, tutors, me;
+try {
+  ({ user } = await api('/api/auth/me', { auth: false }));
+  if (user.role !== 'siswa') { location.href = '/pages/dashboard'; throw new Error('redirect'); }
+  [{ subjects }, { tutors, me }] = await Promise.all([
+    api('/api/subjects', { auth: false }),
+    api('/api/tutors', { auth: false }),
+  ]);
+} catch (error) {
+  if (error.message !== 'redirect') location.href = '/pages/login';
+  throw error;
+}
+
+setUser({ id: user.id, role: user.role, username: user.username, email: user.email, full_name: user.full_name, name: user.full_name });
+mountShell('/pages/cari-tutor.html');
+
+const main = document.getElementById('mainContent');
+
+const state = {
+  tutors,
+  studentLevel: me.jenjang || null,
+  studentSubjects: (me.subject_ids || []).map(String),
+  selectedTutor: null,
+};
+
+main.innerHTML = `
+  <div class="main-head">
+    <div>
+      <h1>Cari Tutor</h1>
+      <p class="sub">Temukan tutor berdasarkan mata pelajaran, jenjang, dan preferensi belajarmu.</p>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <div>
+      <label>Mata pelajaran</label>
+      <select id="fMp">
+        <option value="">Semua</option>
+        ${subjects.map(s => `<option value="${escapeHtml(String(s.id))}">${escapeHtml(s.name)}</option>`).join('')}
+      </select>
+    </div>
+
+    <div>
+      <label>Jenjang</label>
+      <select id="fJj">
+        <option value="">Semua</option>
+        ${LEVELS.map(l => `<option value="${l}">${l}</option>`).join('')}
+      </select>
+    </div>
+
+    <div>
+      <label>Lokasi</label>
+      <input id="fLok" placeholder="mis. Depok">
+    </div>
+
+    <div>
+      <label>Mode</label>
+      <select id="fMode">
+        <option value="">Semua</option>
+        <option value="online">Online</option>
+        <option value="offline">Offline</option>
+      </select>
+    </div>
+
+    <div>
+      <label>&nbsp;</label>
+      <button class="btn-sm" id="btnFilter" style="width:100%;">Terapkan</button>
+    </div>
+  </div>
+
+  <div id="results"></div>
+`;
+
+const results = document.getElementById('results');
+const modal = document.getElementById('modal');
+const sessionForm = document.getElementById('sessionForm');
+const modalAlert = document.getElementById('modalAlert');
+const submitSession = document.getElementById('submitSession');
+
+const filterMp = document.getElementById('fMp');
+const filterJj = document.getElementById('fJj');
+const filterLok = document.getElementById('fLok');
+const filterMode = document.getElementById('fMode');
+
+// Isi awal filter dari profil siswa (bisa dikembalikan ke "Semua").
+if (state.studentLevel) filterJj.value = state.studentLevel;
+if (state.studentSubjects.length) filterMp.value = state.studentSubjects[0];
+
+function renderTutors() {
+  const mp = filterMp.value;
+  const jj = filterJj.value;
+  const location = filterLok.value.trim().toLowerCase();
+  const mode = filterMode.value;
+
+  const filtered = state.tutors
+    .filter(t => {
+      if (mp && !t.subjects.some(s => String(s.id) === mp)) return false;
+      if (jj && !t.teaching_levels.includes(jj)) return false;
+      if (location && !(t.location || '').toLowerCase().includes(location)) return false;
+      if (mode && !(t.mode_preference === mode || t.mode_preference === 'both')) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      if (a.verified !== b.verified) return (b.verified ? 1 : 0) - (a.verified ? 1 : 0);
+      const aMatch = a.subjects.some(s => state.studentSubjects.includes(String(s.id))) ? 1 : 0;
+      const bMatch = b.subjects.some(s => state.studentSubjects.includes(String(s.id))) ? 1 : 0;
+      if (aMatch !== bMatch) return bMatch - aMatch;
+      return (b.rating || 0) - (a.rating || 0);
+    });
+
+  if (!filtered.length) {
+    results.innerHTML = `
+      <div class="empty">
+        <h3>Belum ada tutor cocok</h3>
+        <p>Coba longgarkan filter atau lengkapi preferensi belajar pada profilmu.</p>
+      </div>
+    `;
+    return;
+  }
+
+  results.innerHTML = filtered.map(t => {
+    const ratingText = t.rating !== null
+      ? `${stars(t.rating)} <span>${t.rating} (${t.rating_count} ulasan)</span> · `
+      : '';
+
+    return `
+      <div class="list-item">
+        <div>
+          <h4>
+            ${escapeHtml(t.full_name || 'Tutor')}
+            ${t.verified ? `<span class="chip green" style="margin-left:6px;">✓ Terverifikasi</span>` : ''}
+          </h4>
+
+          <div class="meta">
+            ${ratingText}
+            ${t.hours_taught.toFixed(0)} jam mengajar · ${t.points} poin
+            ${t.location ? ` · ${escapeHtml(t.location)}` : ''}
+            ${t.mode_preference ? ` · ${escapeHtml(t.mode_preference)}` : ''}
+          </div>
+
+          ${t.bio ? `<p style="margin-top:8px; font-size:0.92rem; color:var(--color-ink-soft);">${escapeHtml(t.bio)}</p>` : ''}
+          ${t.experience_description ? `<p style="margin-top:6px; font-size:0.9rem; color:var(--color-ink-soft);">${escapeHtml(t.experience_description)}</p>` : ''}
+
+          <div class="chips">
+            ${t.teaching_levels.map(l => `<span class="chip amber">${escapeHtml(l)}</span>`).join('')}
+            ${t.subjects.slice(0, 5).map(s => `<span class="chip">${escapeHtml(s.name)}</span>`).join('')}
+          </div>
+
+          ${t.availability ? `<p class="meta" style="margin-top:8px;"><strong>Tersedia:</strong> ${escapeHtml(t.availability)}</p>` : ''}
+        </div>
+
+        <div class="actions">
+          <button class="btn-sm" data-ajukan="${escapeHtml(t.id)}" type="button">Ajukan sesi</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  results.querySelectorAll('[data-ajukan]').forEach(button => {
+    button.addEventListener('click', () => {
+      const tutor = state.tutors.find(item => item.id === button.dataset.ajukan);
+      if (tutor) openModal(tutor);
+    });
+  });
+}
+
+function openModal(tutor) {
+  state.selectedTutor = tutor;
+  modalAlert.innerHTML = '';
+  document.getElementById('modalTutorInfo').textContent = `Tutor: ${tutor.full_name}`;
+
+  sessionForm.reset();
+  sessionForm.elements.tutor_id.value = tutor.id;
+
+  document.getElementById('mp').innerHTML = tutor.subjects.map(s =>
+    `<option value="${escapeHtml(String(s.id))}">${escapeHtml(s.name)}</option>`
+  ).join('');
+
+  const levels = tutor.teaching_levels.length ? tutor.teaching_levels : LEVELS;
+  const levelSelect = document.getElementById('jj');
+  levelSelect.innerHTML = levels.map(l => `<option value="${escapeHtml(l)}">${escapeHtml(l)}</option>`).join('');
+  if (levels.includes(state.studentLevel)) levelSelect.value = state.studentLevel;
+
+  const soon = new Date(Date.now() + 30 * 60000);
+  const localMin = new Date(soon.getTime() - soon.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  document.getElementById('scheduledAt').min = localMin;
+
+  if (tutor.mode_preference === 'online' || tutor.mode_preference === 'offline') {
+    sessionForm.elements.mode.value = tutor.mode_preference;
+  }
+
+  modal.classList.add('open');
+}
+
+document.getElementById('modalClose').addEventListener('click', () => modal.classList.remove('open'));
+modal.addEventListener('click', event => {
+  if (event.target === modal) modal.classList.remove('open');
+});
+
+document.getElementById('btnFilter').addEventListener('click', renderTutors);
+filterMp.addEventListener('change', renderTutors);
+filterJj.addEventListener('change', renderTutors);
+filterMode.addEventListener('change', renderTutors);
+filterLok.addEventListener('input', renderTutors);
+
+sessionForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  if (!state.selectedTutor) return;
+
+  const fd = new FormData(sessionForm);
+  const duration = Number(fd.get('duration_min'));
+  const selectedDate = new Date(fd.get('scheduled_at'));
+
+  if (!duration || duration < 30 || duration > 180) {
+    modalAlert.innerHTML = `<div class="alert alert-error">Durasi sesi 30-180 menit.</div>`;
+    return;
+  }
+  if (Number.isNaN(selectedDate.getTime()) || selectedDate <= new Date()) {
+    modalAlert.innerHTML = `<div class="alert alert-error">Jadwal sesi harus berada di masa mendatang.</div>`;
+    return;
+  }
+
+  submitSession.disabled = true;
+  submitSession.textContent = 'Mengirim...';
+  modalAlert.innerHTML = '';
+
+  try {
+    await api('/api/sessions', {
+      method: 'POST',
+      auth: false,
+      body: {
+        tutor_id: state.selectedTutor.id,
+        subject_id: fd.get('subject_id'),
+        jenjang: fd.get('jenjang'),
+        topik: fd.get('topik'),
+        scheduled_at: selectedDate.toISOString(),
+        duration_min: duration,
+        mode: fd.get('mode'),
+        location_or_link: fd.get('location_or_link'),
+        notes: fd.get('notes'),
+      },
+    });
+
+    modal.classList.remove('open');
+    sessionForm.reset();
+    toast('Permintaan sesi terkirim. Menunggu konfirmasi tutor.', 'success');
+  } catch (error) {
+    modalAlert.innerHTML = `<div class="alert alert-error">${escapeHtml(error.message || 'Gagal mengirim permintaan sesi.')}</div>`;
+  } finally {
+    submitSession.disabled = false;
+    submitSession.textContent = 'Kirim permintaan';
+  }
+});
+
+renderTutors();
+</script>
+</body>
+</html>
