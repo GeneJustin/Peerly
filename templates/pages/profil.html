@@ -31,7 +31,6 @@
     throw error;
   }
 
-  // Sinkronkan localStorage dengan data server agar sidebar (ui.js) benar.
   const syncUser = (p) => setUser({
     id: p.id, role: p.role, username: p.username, email: p.email,
     full_name: p.full_name, name: p.full_name,
