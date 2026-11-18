@@ -7,7 +7,6 @@ from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
-from flask_session import Session
 from supabase import create_client, Client
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -20,17 +19,11 @@ if not app.secret_key:
     raise RuntimeError("FLASK_SECRET_KEY belum diatur di environment variables")
 
 app.config.update(
-    SESSION_TYPE="filesystem",
-    SESSION_FILE_DIR="/tmp/flask_session",
-    SESSION_PERMANENT=True,
-    SESSION_USE_SIGNER=True,
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=os.getenv("FLASK_ENV") == "production",
     PERMANENT_SESSION_LIFETIME=60 * 60 * 24 * 7,
 )
-
-Session(app)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
