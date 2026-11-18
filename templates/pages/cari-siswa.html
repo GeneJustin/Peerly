@@ -1,1 +1,113 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cari Siswa — Peerly</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/style.css">
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
 
+<div class="app" id="shell"></div>
+
+<script type="module">
+  import { api, setUser } from '/static/js/api.js';
+  import { mountShell, escapeHtml } from '/static/js/ui.js';
+
+  const LEVELS = ['SD', 'SMP', 'SMA'];
+
+  let user, subjects, students;
+  try {
+    ({ user } = await api('/api/auth/me', { auth: false }));
+    if (user.role !== 'tutor') { location.href = '/pages/dashboard'; throw new Error('redirect'); }
+    [{ subjects }, { students }] = await Promise.all([
+      api('/api/subjects', { auth: false }),
+      api('/api/students', { auth: false }),
+    ]);
+  } catch (error) {
+    if (error.message !== 'redirect') location.href = '/pages/login';
+    throw error;
+  }
+
+  setUser({ id: user.id, role: user.role, username: user.username, email: user.email, full_name: user.full_name, name: user.full_name });
+  mountShell('/pages/cari-siswa.html');
+
+  const main = document.getElementById('mainContent');
+  main.innerHTML = `
+    <div class="main-head">
+      <div>
+        <h1>Cari Siswa</h1>
+        <p class="sub">Lihat daftar siswa yang mata pelajarannya sesuai dengan yang kamu bisa ajar. Permintaan sesi tetap dari siswa — kamu bisa melengkapi profil agar mudah ditemukan.</p>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <div><label>Mata pelajaran</label>
+        <select id="fMp"><option value="">Semua</option>${subjects.map(s => `<option value="${escapeHtml(String(s.id))}">${escapeHtml(s.name)}</option>`).join('')}</select></div>
+      <div><label>Jenjang</label>
+        <select id="fJj"><option value="">Semua</option>${LEVELS.map(j => `<option>${j}</option>`).join('')}</select></div>
+      <div><label>Mode</label>
+        <select id="fMode"><option value="">Semua</option><option value="online">Online</option><option value="offline">Offline</option><option value="both">Keduanya</option></select></div>
+      <div style="grid-column: span 2;"><label>&nbsp;</label></div>
+      <div><label>&nbsp;</label><button class="btn-sm" id="btnFilter" style="width:100%;">Terapkan</button></div>
+    </div>
+
+    <div id="results"></div>
+  `;
+
+  const results = document.getElementById('results');
+  const fMp = document.getElementById('fMp');
+  const fJj = document.getElementById('fJj');
+  const fMode = document.getElementById('fMode');
+
+  document.getElementById('btnFilter').addEventListener('click', render);
+  [fMp, fJj, fMode].forEach(el => el.addEventListener('change', render));
+  render();
+
+  function render() {
+    const mp = fMp.value;
+    const jj = fJj.value;
+    const md = fMode.value;
+
+    const filtered = students.filter(s => {
+      if (mp && !s.subjects.some(x => String(x.id) === mp)) return false;
+      if (jj && s.jenjang !== jj) return false;
+      if (md && !(s.mode_preference === md || s.mode_preference === 'both')) return false;
+      return true;
+    });
+
+    if (!filtered.length) {
+      results.innerHTML = `<div class="empty"><h3>Belum ada siswa cocok</h3><p>Longgarkan filter atau pastikan profilmu memilih mata pelajaran.</p></div>`;
+      return;
+    }
+
+    results.innerHTML = filtered.map(s => `
+      <div class="list-item">
+        <div>
+          <h4>${escapeHtml(s.name || 'Siswa')}</h4>
+          <div class="meta">
+            ${s.jenjang ? escapeHtml(s.jenjang) : 'Jenjang -'}
+            ${s.kelas ? ' · ' + escapeHtml(s.kelas) : ''}
+            ${s.lokasi ? ' · ' + escapeHtml(s.lokasi) : ''}
+            ${s.mode_preference ? ' · mode: ' + escapeHtml(s.mode_preference) : ''}
+          </div>
+          ${s.bio ? `<p style="margin-top:8px; font-size:0.92rem; color:var(--color-ink-soft);">${escapeHtml(s.bio)}</p>` : ''}
+          <div class="chips">
+            ${s.subjects.map(m => `<span class="chip">${escapeHtml(m.name)}</span>`).join('')}
+            ${s.gaya_belajar ? `<span class="chip amber">Gaya: ${escapeHtml(s.gaya_belajar)}</span>` : ''}
+          </div>
+          ${s.availability ? `<p class="meta" style="margin-top:8px;"><strong>Tersedia:</strong> ${escapeHtml(s.availability)}</p>` : ''}
+        </div>
+        <div class="actions">
+          <span class="chip ${s._score >= 40 ? 'green' : 'amber'}">${s._score >= 40 ? 'Sangat cocok' : 'Mungkin cocok'}</span>
+        </div>
+      </div>
+    `).join('');
+  }
+</script>
+</body>
+</html>
