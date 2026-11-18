@@ -1,1 +1,94 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Progress Belajar — Peerly</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/style.css">
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
 
+<div class="app" id="shell"></div>
+
+<script type="module">
+  import { api, setUser } from '/static/js/api.js';
+  import { mountShell, escapeHtml, fmtDateTime } from '/static/js/ui.js';
+
+  let user, progress, summary, total_sesi_selesai;
+  try {
+    ({ user } = await api('/api/auth/me', { auth: false }));
+    if (user.role !== 'siswa') { location.href = '/pages/dashboard'; throw new Error('redirect'); }
+    ({ progress, summary, total_sesi_selesai } = await api('/api/progress', { auth: false }));
+  } catch (error) {
+    if (error.message !== 'redirect') location.href = '/pages/login';
+    throw error;
+  }
+
+  setUser({ id: user.id, role: user.role, username: user.username, email: user.email, full_name: user.full_name, name: user.full_name });
+  mountShell('/pages/progress.html');
+  const main = document.getElementById('mainContent');
+
+  const totalMp = summary.length;
+  const avgAll = summary.length
+    ? (summary.reduce((a, b) => a + Number(b.avg_mastery || 0), 0) / summary.length).toFixed(2)
+    : '-';
+  const totalEntries = progress.length;
+
+  main.innerHTML = `
+    <div class="main-head">
+      <div>
+        <h1>Progress Belajar</h1>
+        <p class="sub">Ringkasan penguasaan dan catatan dari tutor setiap sesi.</p>
+      </div>
+    </div>
+
+    <div class="grid-4" style="margin-bottom:28px;">
+      <div class="stat"><div class="label">Sesi selesai</div><div class="value">${total_sesi_selesai}</div></div>
+      <div class="stat"><div class="label">Mata pelajaran</div><div class="value">${totalMp}</div></div>
+      <div class="stat"><div class="label">Topik dicatat</div><div class="value">${totalEntries}</div></div>
+      <div class="stat"><div class="label">Rata-rata penguasaan</div><div class="value">${avgAll}<span style="font-size:1rem;color:var(--color-ink-soft);"> / 5</span></div></div>
+    </div>
+
+    <h3 style="margin-bottom:12px;">Per mata pelajaran</h3>
+    ${summary.length ? `
+      <div class="card" style="margin-bottom:28px;">
+        ${summary.map(m => `
+          <div style="margin-bottom:14px;">
+            <div style="display:flex;justify-content:space-between; margin-bottom:4px;">
+              <strong>${escapeHtml(m.mata_pelajaran)}</strong>
+              <span class="meta">${m.avg_mastery} / 5 · ${m.entries} topik</span>
+            </div>
+            <div class="pbar"><span style="width:${Math.min(100, (m.avg_mastery / 5) * 100)}%;"></span></div>
+          </div>
+        `).join('')}
+      </div>
+    ` : `<div class="empty" style="margin-bottom:28px;"><h3>Belum ada data</h3><p>Progress akan dicatat tutor setelah sesi selesai.</p></div>`}
+
+    <h3 style="margin-bottom:12px;">Catatan terbaru</h3>
+    ${progress.length ? `
+      <table class="data">
+        <thead><tr>
+          <th>Tanggal</th><th>Mata pelajaran</th><th>Topik</th><th>Penguasaan</th><th>Tutor</th><th>Catatan</th>
+        </tr></thead>
+        <tbody>
+          ${progress.map(p => `
+            <tr>
+              <td>${fmtDateTime(p.created_at)}</td>
+              <td>${escapeHtml(p.mata_pelajaran)}</td>
+              <td>${escapeHtml(p.topik)}</td>
+              <td>${'★'.repeat(p.mastery)}<span style="color:var(--color-line);">${'★'.repeat(5 - p.mastery)}</span></td>
+              <td>${escapeHtml(p.tutor_name || '-')}</td>
+              <td>${escapeHtml(p.catatan || '-')}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    ` : ''}
+  `;
+</script>
+</body>
+</html>
